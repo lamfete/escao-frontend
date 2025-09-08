@@ -68,6 +68,7 @@ export async function createEscrow(input: { sellerId: string; amount: number; de
   };*/
   return http<Escrow>("/api/escrow", {
     method: "POST",
+    body: JSON.stringify(input),
   });
 }
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import /*React,*/ { useEffect, useState } from "react";
 import StatusBadge from "../components/StatusBadge";
 import type { Escrow, EscrowStatus, Dispute } from "../types";
 import { listEscrows, listDisputes, resolveDispute } from "../services/api";
