@@ -5,11 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
+    "build": "vite build",
     "preview": "vite preview",
-    "heroku-postbuild": "npm run build",
-    "start": "node server.js"
+    "start": "npx serve -s dist"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
