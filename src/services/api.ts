@@ -1,6 +1,11 @@
+
 import type { Escrow, EscrowStatus, Dispute, User } from "../types";
 
-const BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+// Use local or production base URL depending on environment
+const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+const BASE = isLocal
+  ? import.meta.env.VITE_API_BASE_URL_LOCAL
+  : import.meta.env.VITE_API_BASE_URL_PROD;
 
 async function http<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const url = `${BASE}${path}`;
