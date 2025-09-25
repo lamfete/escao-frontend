@@ -1,4 +1,3 @@
-
 import type { Escrow, EscrowStatus, Dispute, User } from "../types";
 import { getToken, setAuth } from "./authStorage";
 
@@ -47,7 +46,7 @@ async function http<T>(path: string, opts: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
-// Auth (mock-friendly)
+// Auth
 type LoginResponse = {
   accessToken: string;
   user: { id: string; email: string; role: User["role"] };
@@ -88,23 +87,12 @@ export async function listEscrows(): Promise<Escrow[]> {
 }
 
 export async function getEscrow(id: string): Promise<Escrow> {
-  // Replace with GET /escrows/:id
-  // return { id, seller: "Gadget Nusantara", amount: 2_499_000, status: "funded", createdAt: new Date().toISOString(), paymentMethod: "QRIS" };
   return http<Escrow>(`/escrow/${id}`, {
     method: "GET",
   });
 }
 
 export async function createEscrow(input: { sellerId: string; amount: number; deadlineConfirm: string }): Promise<Escrow> {
-  // Replace with POST /escrows
-  /*return {
-    id: `ESC-${Math.floor(Math.random()*9000)+1000}`,
-    seller: input.sellerId,
-    amount: input.amount,
-    status: "pending_payment",
-    createdAt: new Date().toISOString(),
-    paymentMethod: "QRIS"
-  };*/
   return http<Escrow>("/escrow", {
     method: "POST",
     body: JSON.stringify(input),
@@ -112,22 +100,18 @@ export async function createEscrow(input: { sellerId: string; amount: number; de
 }
 
 export async function updateEscrowStatus(id: string, status: EscrowStatus): Promise<Escrow> {
-  // Replace with PATCH /escrows/:id/status
   const e = await getEscrow(id);
   return { ...e, status };
 }
 
 // Disputes
 export async function listDisputes(): Promise<Dispute[]> {
-  // Replace with GET /disputes
   return [
     { id: "DSP-1", escrowId: "ESC-1030", reason: "Item not as described", status: "disputed", createdAt: new Date().toISOString() },
   ];
 }
 
 export async function resolveDispute(escrowId: string, action: "resolved_refund"|"resolved_release"|"resolved_split"): Promise<Dispute> {
-  // Replace with POST /disputes/:id/resolve
-  // return { id: "DSP-1", escrowId, reason: "n/a", status: action, createdAt: new Date().toISOString() };
   return http<Dispute>(`/disputes/${escrowId}/resolve`, {
     method: "POST",
     body: JSON.stringify({ action }),
