@@ -200,6 +200,17 @@ export async function updateEscrowStatus(id: string, status: EscrowStatus): Prom
   return { ...e, status };
 }
 
+// Payments
+export async function fundEscrow(
+  escrowId: string,
+  payload: { method: 'bank_transfer' | 'qris'; pg_reference: string; qr_code_url?: string }
+): Promise<any> {
+  return http<any>(`/escrow/${escrowId}/fund`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 // Disputes
 export async function listDisputes(): Promise<Dispute[]> {
   return [

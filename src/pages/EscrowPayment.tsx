@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { formatIDR } from "../utils/format";
-import { getEscrow, updateEscrowStatus } from "../services/api";
+import { getEscrow, fundEscrow } from "../services/api";
 
 type NavState = { amount?: number; paymentUrl?: string } | null;
 
@@ -15,6 +15,7 @@ export default function EscrowPayment(){
   const [paymentUrl] = useState<string | undefined>(navState?.paymentUrl);
   const [waiting, setWaiting] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [method, setMethod] = useState<'qris' | 'bank_transfer'>('qris');
 
   // Generate dummy payment codes once
   const { qrisCode, bifastCode } = useMemo(() => {
@@ -46,15 +47,43 @@ export default function EscrowPayment(){
     if (!id) return;
     setWaiting(true);
     toast('Submitting payment…');
-    // Simulate sending to third-party and webhook confirmation
-    setTimeout(async () => {
+    try {
+      // Send funding details to backend (dummy values for now)
+      const isQris = method === 'qris';
+      const makeRef = () => `TXN${Math.random().toString(36).slice(2,8).toUpperCase()}${Date.now().toString().slice(-6)}`;
+      await fundEscrow(id, {
+        method,
+        pg_reference: makeRef(),
+        qr_code_url: isQris ? (paymentUrl || 'https://example.com/qr/123') : undefined,
+      });
+    } catch (err: any) {
+      setWaiting(false);
+      toast.error(err?.message || 'Failed to submit payment');
+      return;
+    }
+
+    // Poll the escrow until status becomes funded (basic demo polling)
+    let attempts = 0;
+    const maxAttempts = 10; // ~20s
+    const poll = async () => {
+      attempts += 1;
       try {
-        // Dummy local update; replace with backend confirmation handling when available
-        await updateEscrowStatus(id, 'funded');
+        const e = await getEscrow(id);
+        if (String(e.status).toLowerCase() === 'funded') {
+          setConfirmed(true);
+          setWaiting(false);
+          toast.success('Payment confirmed');
+          return;
+        }
       } catch {}
-      setConfirmed(true);
-      toast.success('Payment confirmed');
-    }, 2500);
+      if (attempts < maxAttempts) {
+        setTimeout(poll, 2000);
+      } else {
+        setWaiting(false);
+        toast('Still waiting for payment confirmation…');
+      }
+    };
+    setTimeout(poll, 1500);
   };
 
   const goToEscrow = () => { if (id) navigate(`/escrow/${id}`); };
@@ -68,6 +97,14 @@ export default function EscrowPayment(){
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-600">Amount</span>
           <span className="text-lg font-semibold">{amount != null ? formatIDR(amount) : '—'}</span>
+        </div>
+
+        <div className="pt-2">
+          <h3 className="font-semibold mb-2">Choose Payment Method</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <button type="button" onClick={()=>setMethod('qris')} className={`p-3 border rounded-lg text-sm ${method==='qris' ? 'border-indigo-600 ring-2 ring-indigo-200' : ''}`}>QRIS</button>
+            <button type="button" onClick={()=>setMethod('bank_transfer')} className={`p-3 border rounded-lg text-sm ${method==='bank_transfer' ? 'border-indigo-600 ring-2 ring-indigo-200' : ''}`}>Bank Transfer</button>
+          </div>
         </div>
 
         {paymentUrl && (
