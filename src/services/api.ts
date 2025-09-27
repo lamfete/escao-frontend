@@ -1,5 +1,6 @@
 import type { Escrow, EscrowStatus, Dispute, User } from "../types";
-import { getToken, setAuth } from "./authStorage";
+import { getToken, setAuth, clearAuth } from "./authStorage";
+import { toast } from "react-hot-toast";
 
 // Determine API base URL via env; prefer VITE_API_BASE_URL when set, otherwise use local/prod split.
 const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
@@ -18,6 +19,9 @@ function joinUrl(base: string, path: string) {
   const p = path.startsWith("/") ? path : `/${path}`;
   return `${b}${p}`;
 }
+
+// Ensure we only trigger one toast+redirect even if multiple requests fail concurrently
+let sessionRedirectScheduled = false;
 
 async function http<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const url = joinUrl(BASE, path);
@@ -48,6 +52,29 @@ async function http<T>(path: string, opts: RequestInit = {}): Promise<T> {
       payload = await res.json();
     } catch {
       // ignore
+    }
+    // Detect invalid/expired token and force re-authentication
+    const status = res.status;
+    const msg = (payload && typeof payload === 'object')
+      ? String((payload as any).message || (payload as any).error || (payload as any).detail || '')
+      : '';
+    const msgLower = msg.toLowerCase();
+    const isAuthProblem = status === 401 ||
+      (status === 403 && msgLower.includes('token')) ||
+      msgLower.includes('invalid or expired token');
+    if (isAuthProblem) {
+      try { clearAuth(); localStorage.removeItem('auth_user'); } catch {}
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        if (!sessionRedirectScheduled) {
+          sessionRedirectScheduled = true;
+          // Non-blocking toast so users know why they were redirected
+          try { toast.error('Your session expired, please log in again', { id: 'session-expired' }); } catch {}
+          // Give the toast a brief moment to render, then redirect
+          setTimeout(() => {
+            try { window.location.replace('/login'); } finally { sessionRedirectScheduled = false; }
+          }, 1200);
+        }
+      }
     }
     const err = new Error(
       `Request failed: ${res.status} ${res.statusText} for ${url}`
