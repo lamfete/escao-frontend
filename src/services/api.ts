@@ -24,10 +24,23 @@ async function http<T>(path: string, opts: RequestInit = {}): Promise<T> {
   // Attach bearer token if present in storage
   const token = getToken();
   const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...authHeader, ...(opts.headers || {}) },
-    ...opts,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { "Content-Type": "application/json", ...authHeader, ...(opts.headers || {}) },
+      ...opts,
+    });
+  } catch (e: any) {
+    const err = new Error(`Network error while requesting ${url}: ${e?.message || String(e)}`) as Error & {
+      network?: boolean;
+      cause?: unknown;
+      url?: string;
+    };
+    err.network = true;
+    err.cause = e;
+    err.url = url;
+    throw err;
+  }
   if (!res.ok) {
     // Parse error response as JSON if possible and include context
     let payload: unknown = null;
@@ -86,17 +99,72 @@ export async function listEscrows(): Promise<Escrow[]> {
   ];
 }
 
-export async function getEscrow(id: string): Promise<Escrow> {
-  return http<Escrow>(`/escrow/${id}`, {
-    method: "GET",
-  });
+function mapStatus(s: unknown): EscrowStatus {
+  const val = String(s || '').toLowerCase();
+  switch (val) {
+    case 'pending':
+    case 'pending_payment':
+      return 'pending_payment';
+    case 'funded':
+      return 'funded';
+    case 'shipped':
+      return 'shipped';
+    case 'delivered':
+      return 'delivered';
+    case 'released':
+      return 'released';
+    case 'disputed':
+      return 'disputed';
+    case 'resolved_refund':
+    case 'resolved_release':
+    case 'resolved_split':
+      return val as EscrowStatus;
+    default:
+      return 'pending_payment';
+  }
 }
 
-export async function createEscrow(input: { sellerId: string; amount: number; deadlineConfirm: string }): Promise<Escrow> {
-  return http<Escrow>("/escrow", {
+function mapBackendEscrow(b: any): Escrow {
+  return {
+    id: b?.id ?? '',
+    buyer: b?.buyer_email || b?.buyer || b?.buyer_id || undefined,
+    seller: b?.seller_email || b?.counterparty_email || b?.counterparty_id || b?.seller || 'Unknown',
+    amount: typeof b?.amount === 'number' ? b.amount : Number(b?.amount ?? 0),
+    status: mapStatus(b?.status),
+    createdAt: b?.created_at || b?.createdAt || new Date().toISOString(),
+    // paymentMethod is optional and not provided by backend; leave undefined
+  };
+}
+
+export async function getEscrow(id: string): Promise<Escrow> {
+  const resp = await http<{ escrow?: any } | any>(`/escrow/${id}`, { method: 'GET' });
+  const raw = (resp && typeof resp === 'object' && 'escrow' in resp) ? (resp as any).escrow : resp;
+  const mapped = mapBackendEscrow(raw);
+  if (!mapped.id) {
+    const err = new Error('Escrow not found or missing id in response') as Error & { data?: unknown };
+    err.data = resp;
+    throw err;
+  }
+  return mapped;
+}
+
+export async function createEscrow(input: { sellerId: string; amount: number }): Promise<Pick<Escrow, 'id'>> {
+  const payload = {
+    amount: input.amount,
+    currency: "IDR",
+    counterparty_id: input.sellerId,
+  };
+  const resp = await http<{ message?: string; escrow?: { id?: string } }>("/escrow", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify(payload),
   });
+  const id = resp?.escrow?.id;
+  if (!id) {
+    const err = new Error("Create escrow response missing escrow.id") as Error & { data?: unknown };
+    err.data = resp;
+    throw err;
+  }
+  return { id };
 }
 
 export async function updateEscrowStatus(id: string, status: EscrowStatus): Promise<Escrow> {

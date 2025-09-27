@@ -44,9 +44,9 @@ export default function EscrowDetail(){
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <Info label="Seller" value={escrow.seller}/>
+  <Info label="Buyer Email" value={escrow.buyer || '—'}/>
+  <Info label="Seller Email" value={escrow.seller}/>
         <Info label="Amount" value={formatIDR(escrow.amount)}/>
-        <Info label="Payment Method" value={escrow.paymentMethod || "QRIS"}/>
         <Info label="Created" value={new Date(escrow.createdAt).toLocaleString()}/>
       </div>
 
