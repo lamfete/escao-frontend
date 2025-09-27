@@ -175,23 +175,24 @@ export async function getEscrow(id: string): Promise<Escrow> {
   return mapped;
 }
 
-export async function createEscrow(input: { sellerId: string; amount: number }): Promise<Pick<Escrow, 'id'>> {
+export async function createEscrow(input: { sellerId: string; amount: number }): Promise<Pick<Escrow, 'id'> & { paymentUrl?: string }> {
   const payload = {
     amount: input.amount,
     currency: "IDR",
     counterparty_id: input.sellerId,
   };
-  const resp = await http<{ message?: string; escrow?: { id?: string } }>("/escrow", {
+  const resp = await http<{ message?: string; escrow?: { id?: string; payment_url?: string; paymentLink?: string } } | { id?: string; payment_url?: string; paymentLink?: string }>("/escrow", {
     method: "POST",
     body: JSON.stringify(payload),
   });
-  const id = resp?.escrow?.id;
+  const id = (resp as any)?.escrow?.id ?? (resp as any)?.id;
+  const paymentUrl = (resp as any)?.payment_url || (resp as any)?.paymentLink || (resp as any)?.escrow?.payment_url || (resp as any)?.escrow?.paymentLink;
   if (!id) {
     const err = new Error("Create escrow response missing escrow.id") as Error & { data?: unknown };
     err.data = resp;
     throw err;
   }
-  return { id };
+  return { id, paymentUrl };
 }
 
 export async function updateEscrowStatus(id: string, status: EscrowStatus): Promise<Escrow> {
