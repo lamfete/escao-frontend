@@ -31,12 +31,9 @@ export default function EscrowNew(){
       if (!e?.id) throw new Error("Missing escrow id in response");
       setPaymentUrl(e.paymentUrl);
       toast.success("Escrow created");
-      if (e.paymentUrl) {
-        // Keep user on this screen and show the link below
-        setShowEula(false);
-      } else {
-        navigate(`/escrow/${e.id}`);
-      }
+      setShowEula(false);
+      // Go to Payment screen; pass paymentUrl if available
+      navigate(`/escrow/${e.id}/payment`, { state: { amount: data.amount, paymentUrl: e.paymentUrl } });
     } catch (err: any) {
       const msg = err?.message || (err?.data && JSON.stringify(err.data)) || "Failed to create escrow";
       toast.error(msg);

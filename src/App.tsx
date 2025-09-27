@@ -7,6 +7,7 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import EscrowNew from "./pages/EscrowNew";
 import EscrowDetail from "./pages/EscrowDetail";
+import EscrowPayment from "./pages/EscrowPayment";
 import AdminDashboard from "./pages/AdminDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -23,6 +24,7 @@ export default function App(){
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/escrow/new" element={<ProtectedRoute><EscrowNew /></ProtectedRoute>} />
           <Route path="/escrow/:id" element={<ProtectedRoute><EscrowDetail /></ProtectedRoute>} />
+          <Route path="/escrow/:id/payment" element={<ProtectedRoute><EscrowPayment /></ProtectedRoute>} />
 
           <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
         </Routes>
