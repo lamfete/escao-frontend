@@ -10,8 +10,21 @@ const baseFromSplit = isLocal
   : (import.meta.env.VITE_API_BASE_URL_PROD as string | undefined);
 const baseRaw: string | undefined = baseFromSingle || baseFromSplit;
 
-// Normalize base (remove trailing slash); if not provided, use empty string to make requests relative
-const BASE = (baseRaw || "").replace(/\/$/, "");
+// Normalize base and adapt for local dev: if pointing to localhost/127.0.0.1 with '/api' path,
+// prefer hitting the Vite proxy by using '/api' relative base to avoid CORS/body parsing issues.
+let BASE = (baseRaw || "").replace(/\/$/, "");
+if (isLocal && baseRaw) {
+  try {
+    const u = new URL(baseRaw);
+    const hostIsLocal = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+    const path = u.pathname.replace(/\/+$/, '');
+    if (hostIsLocal && path === '/api') {
+      BASE = '/api';
+    }
+  } catch {
+    // ignore invalid URL strings; keep as-is
+  }
+}
 
 function joinUrl(base: string, path: string) {
   if (!base) return path; // relative to current origin
@@ -30,10 +43,13 @@ async function http<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
   let res: Response;
   try {
-    res = await fetch(url, {
-      headers: { "Content-Type": "application/json", ...authHeader, ...(opts.headers || {}) },
-      ...opts,
-    });
+    const isForm = typeof FormData !== 'undefined' && (opts as any).body instanceof FormData;
+    const headers: Record<string, string> = {
+      ...(isForm ? {} : { "Content-Type": "application/json" }),
+      ...authHeader,
+      ...(opts.headers as any || {}),
+    };
+    res = await fetch(url, { headers, ...opts });
   } catch (e: any) {
     const err = new Error(`Network error while requesting ${url}: ${e?.message || String(e)}`) as Error & {
       network?: boolean;
@@ -117,13 +133,19 @@ export async function register(email: string, password: string, role: "buyer"|"s
 }
 
 // Escrows
-export async function listEscrows(): Promise<Escrow[]> {
-  // Replace with GET /escrows
-  return [
-    { id: "ESC-1029", seller: "Toko Andalas", amount: 1_250_000, status: "pending_payment", createdAt: new Date().toISOString(), paymentMethod: "QRIS" },
-    { id: "ESC-1030", seller: "Gadget Nusantara", amount: 2_499_000, status: "funded", createdAt: new Date().toISOString(), paymentMethod: "QRIS" },
-    { id: "ESC-1031", seller: "Batik Ayu", amount: 540_000, status: "released", createdAt: new Date().toISOString(), paymentMethod: "BIFAST" },
-  ];
+export async function listEscrows(params?: { limit?: number; offset?: number; status?: string; as?: 'buyer'|'seller' }): Promise<Escrow[]> {
+  const limit = params?.limit ?? 20;
+  const offset = params?.offset ?? 0;
+  const status = params?.status ?? '';
+  const as = params?.as ?? undefined;
+  const qs = new URLSearchParams();
+  qs.set('limit', String(limit));
+  qs.set('offset', String(offset));
+  if (status) qs.set('status', status);
+  if (as) qs.set('as', as);
+  const resp = await http<any>(`/escrow?${qs.toString()}`, { method: 'GET' });
+  const arr: any[] = Array.isArray(resp) ? resp : (resp?.escrows || resp?.data || resp?.items || []);
+  return arr.map(mapBackendEscrow);
 }
 
 function mapStatus(s: unknown): EscrowStatus {
@@ -209,6 +231,241 @@ export async function fundEscrow(
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+// Shipping (seller)
+export async function shipEscrow(
+  escrowId: string,
+  input: { shipping_receipt: string; media?: File }
+): Promise<any> {
+  // Prefer canonical field 'tracking_number'; backend now accepts JSON or multipart.
+  if (input.media) {
+    const form = new FormData();
+    form.append('tracking_number', input.shipping_receipt);
+    form.append('media', input.media);
+    return http<any>(`/escrow/${escrowId}/ship`, { method: 'POST', body: form });
+  }
+  return http<any>(`/escrow/${escrowId}/ship`, {
+    method: 'POST',
+    body: JSON.stringify({ tracking_number: input.shipping_receipt }),
+  });
+}
+
+// Buyer uploads received proof
+export async function uploadReceivedProof(
+  escrowId: string,
+  file: File
+): Promise<any> {
+  const form = new FormData();
+  form.append('media', file);
+  return http<any>(`/escrow/${escrowId}/received-proof`, {
+    method: 'POST',
+    body: form,
+  });
+}
+
+// Buyer confirms receipt (finish)
+export async function confirmReceipt(escrowId: string): Promise<any> {
+  return http<any>(`/escrow/${escrowId}/confirm-receipt`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+// KYC
+export type KycInfo = { status?: string; kyc_status?: string; verified?: boolean; level?: string; [k: string]: any };
+
+function normalizeKyc(resp: any): KycInfo {
+  const raw = resp || {};
+  const rawStatus: string | undefined = raw.kyc_status || raw.status || raw.kycStatus;
+  const status = rawStatus ? String(rawStatus).toLowerCase() : undefined;
+  const verified = raw?.verified === true || status === 'verified' || status === 'approved';
+  return {
+    ...raw,
+    kyc_status: rawStatus ?? status,
+    status,
+    verified,
+  } as KycInfo;
+}
+
+export async function getMyKycStatus(): Promise<KycInfo> {
+  const resp = await http<any>(`/users/me/kyc`, { method: 'GET' });
+  return normalizeKyc(resp);
+}
+
+// Get a user's KYC status (admin)
+export async function getUserKycStatus(userId: string): Promise<KycInfo> {
+  const resp = await http<any>(`/users/${encodeURIComponent(userId)}/kyc`, { method: 'GET' });
+  return normalizeKyc(resp);
+}
+
+// Try to find a user id by email using common patterns; returns null if not found.
+export async function findUserIdByEmail(email: string): Promise<{ id: string; email?: string } | null> {
+  const envPath = (import.meta as any).env?.VITE_USER_EMAIL_LOOKUP_PATH as string | undefined;
+  const candidates = [
+    envPath ? (envPath.includes('{email}') ? envPath.replace('{email}', encodeURIComponent(email)) : `${envPath}${encodeURIComponent(email)}`) : null,
+    `/users?email=${encodeURIComponent(email)}`,
+    `/admin/users?email=${encodeURIComponent(email)}`,
+  ].filter(Boolean) as string[];
+  for (const path of candidates) {
+    try {
+      const resp = await http<any>(path, { method: 'GET' });
+      // Parse diverse response shapes
+      const arr = Array.isArray(resp) ? resp
+        : (resp?.users || resp?.data || resp?.items || (resp?.user ? [resp.user] : []));
+      const match = (arr || []).find((u: any) => String(u?.email || '').toLowerCase() === email.toLowerCase() || String(u?.id || '') === email);
+      if (match && match.id) {
+        return { id: String(match.id), email: match.email };
+      }
+      // If single object and matches
+      if (resp && typeof resp === 'object' && !Array.isArray(resp) && resp.id && (resp.email?.toLowerCase?.() === email.toLowerCase())) {
+        return { id: String(resp.id), email: resp.email };
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+  return null;
+}
+
+// Submit KYC (user) - supports file uploads or URLs
+export async function submitKyc(input: {
+  full_name: string;
+  id_number: string;
+  document_url?: string;
+  selfie_url?: string;
+  document?: File;
+  selfie?: File;
+}): Promise<any> {
+  const hasFiles = !!(input.document || input.selfie);
+  if (hasFiles) {
+    const form = new FormData();
+    form.append('full_name', input.full_name);
+    form.append('id_number', input.id_number);
+    if (input.document) form.append('document', input.document);
+    if (input.selfie) form.append('selfie', input.selfie);
+    if (input.document_url) form.append('document_url', input.document_url);
+    if (input.selfie_url) form.append('selfie_url', input.selfie_url);
+    return http<any>(`/users/kyc`, { method: 'POST', body: form });
+  }
+  // fallback to JSON when only URLs provided
+  return http<any>(`/users/kyc`, {
+    method: 'POST',
+    body: JSON.stringify({
+      full_name: input.full_name,
+      id_number: input.id_number,
+      document_url: input.document_url,
+      selfie_url: input.selfie_url,
+    }),
+  });
+}
+
+// Verify KYC (admin)
+export async function adminVerifyUserKyc(userId: string, decision: 'verified' | 'rejected', note?: string): Promise<any> {
+  return http<any>(`/users/${encodeURIComponent(userId)}/kyc/verify`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, note }),
+  });
+}
+
+export type KycUser = { id: string; email?: string; role?: string; kyc_status?: string; status?: string; level?: string; submitted_at?: string };
+
+function mapKycUser(u: any): KycUser | null {
+  if (!u) return null;
+  const id = u.id || u.user_id || u.userId || u.uid;
+  if (!id) return null;
+  const email = u.email || u.user?.email || u.contact?.email;
+  const role = u.role || u.user?.role;
+  const status = (u.kyc_status || u.status || '').toString().toLowerCase();
+  const level = u.level || u.kyc_level;
+  const submitted_at = u.submitted_at || u.created_at || u.createdAt;
+  return { id: String(id), email, role, kyc_status: status, status, level, submitted_at };
+}
+
+export async function listKycPendingSellers(params?: { role?: string; email?: string; limit?: number; offset?: number }): Promise<KycUser[]> {
+  const role = params?.role || 'seller';
+  const email = params?.email || '';
+  const limit = typeof params?.limit === 'number' ? params!.limit! : 20;
+  const offset = typeof params?.offset === 'number' ? params!.offset! : 0;
+  const qs = new URLSearchParams();
+  if (role) qs.set('role', role);
+  if (email !== undefined) qs.set('email', email);
+  qs.set('limit', String(limit));
+  qs.set('offset', String(offset));
+
+  const envPath = (import.meta as any).env?.VITE_KYC_PENDING_PATH as string | undefined;
+  const main = `/users/kyc/pending?${qs.toString()}`;
+  const candidates = [envPath ? `${envPath}${envPath.includes('?') ? '&' : '?'}${qs.toString()}` : null, main, '/admin/users?role=seller&kyc_status=submitted', '/users?role=seller&kyc_status=submitted', '/admin/kyc?status=submitted']
+    .filter(Boolean) as string[];
+
+  function needsReview(s?: string) {
+    const v = (s || '').toLowerCase();
+    return ['submitted', 'pending', 'pending_review', 'under_review'].includes(v);
+  }
+
+  for (const path of candidates) {
+    try {
+      const resp = await http<any>(path!, { method: 'GET' });
+      const arr = Array.isArray(resp) ? resp : (resp?.users || resp?.data || resp?.items || resp?.results || []);
+      const mapped = (arr as any[]).map(mapKycUser).filter(Boolean) as KycUser[];
+      const filtered = mapped.filter(u => (u.role ? u.role === 'seller' : true) && needsReview(u.kyc_status || u.status));
+      if (filtered.length || envPath || path === main) return filtered; // return even empty if explicit env or the canonical endpoint
+    } catch {
+      // try next
+    }
+  }
+  return [];
+}
+
+// Detailed KYC submission info for a user, including resolved document/selfie URLs
+export type KycSubmission = {
+  userId: string;
+  full_name?: string;
+  id_number?: string;
+  document_url?: string;
+  selfie_url?: string;
+  status?: string;
+  submitted_at?: string;
+};
+
+export async function getUserKycDetails(userId: string): Promise<KycSubmission> {
+  const resp = await http<any>(`/users/${encodeURIComponent(userId)}/kyc`, { method: 'GET' });
+  const obj = resp && typeof resp === 'object' ? resp : {};
+  const submission = obj && typeof obj === 'object' ? (obj.submission || obj.kyc || obj.kyc_submission || null) : null;
+  const user = obj && typeof obj === 'object' ? (obj.user || null) : null;
+
+  function pickUrl(r: any, keys: string[], fileHints: string[]): string | undefined {
+    for (const k of keys) {
+      const v = r?.[k];
+      if (typeof v === 'string' && v) return v;
+      if (v && typeof v === 'object' && typeof v.url === 'string') return v.url;
+    }
+    const files = Array.isArray(r?.files) ? r.files : Array.isArray(r?.documents) ? r.documents : undefined;
+    if (Array.isArray(files)) {
+      for (const f of files) {
+        const name = String(f?.name || f?.filename || f?.originalname || '').toLowerCase();
+        const kind = String(f?.kind || f?.type || f?.fieldname || '').toLowerCase();
+        const hint = `${name} ${kind}`;
+        if (fileHints.some(h => hint.includes(h))) {
+          if (typeof f?.url === 'string') return f.url;
+          if (typeof f?.path === 'string') return f.path;
+        }
+      }
+      // fallback: first file with explicit url
+      const firstWithUrl = files.find((f: any) => typeof f?.url === 'string');
+      if (firstWithUrl) return firstWithUrl.url;
+    }
+    return undefined;
+  }
+
+  const resolvedUserId = user?.id || submission?.user_id || userId;
+  const full_name = submission?.full_name || obj.full_name || obj.name || obj.legal_name;
+  const id_number = submission?.id_number || obj.id_number || obj.nik || obj.document_number;
+  const status = String(submission?.status || obj.kyc_status || obj.status || '').toLowerCase();
+  const submitted_at = submission?.submitted_at || submission?.created_at || submission?.createdAt || obj.submitted_at || obj.created_at || obj.createdAt;
+  const document_url = submission?.document_url || pickUrl(obj, ['document_url', 'documentURL'], ['document', 'ktp', 'passport', 'id']);
+  const selfie_url = submission?.selfie_url || pickUrl(obj, ['selfie_url', 'selfieURL', 'selfie'], ['selfie']);
+  return { userId: String(resolvedUserId), full_name, id_number, document_url, selfie_url, status, submitted_at };
 }
 
 // Disputes

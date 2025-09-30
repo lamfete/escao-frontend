@@ -4,7 +4,16 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const proxyTarget = env.VITE_PROXY_TARGET || 'http://localhost:3000';
+  let proxyTarget = env.VITE_PROXY_TARGET || '';
+  if (!proxyTarget && env.VITE_API_BASE_URL) {
+    try {
+      const u = new URL(env.VITE_API_BASE_URL);
+      proxyTarget = `${u.protocol}//${u.hostname}${u.port ? `:${u.port}` : ''}`;
+    } catch {
+      // ignore, will fallback
+    }
+  }
+  if (!proxyTarget) proxyTarget = 'http://localhost:4000';
 
   return {
     plugins: [react(), tailwindcss()],

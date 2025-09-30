@@ -10,6 +10,7 @@ import EscrowDetail from "./pages/EscrowDetail";
 import EscrowPayment from "./pages/EscrowPayment";
 import AdminDashboard from "./pages/AdminDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
+import KycPage from "./pages/Kyc";
 
 export default function App(){
   return (
@@ -25,6 +26,7 @@ export default function App(){
           <Route path="/escrow/new" element={<ProtectedRoute><EscrowNew /></ProtectedRoute>} />
           <Route path="/escrow/:id" element={<ProtectedRoute><EscrowDetail /></ProtectedRoute>} />
           <Route path="/escrow/:id/payment" element={<ProtectedRoute><EscrowPayment /></ProtectedRoute>} />
+          <Route path="/kyc" element={<ProtectedRoute><KycPage /></ProtectedRoute>} />
 
           <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
         </Routes>

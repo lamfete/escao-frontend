@@ -5,27 +5,31 @@ import StatusBadge from "../components/StatusBadge";
 import type { Escrow, EscrowStatus } from "../types";
 import { listEscrows } from "../services/api";
 import { formatIDR } from "../utils/format";
+import { useAuth } from "../hooks/useAuth";
 
 export default function Dashboard(){
   const [rows, setRows] = useState<Escrow[]>([]);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<EscrowStatus | "all">("all");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
 
   useEffect(() => {
     (async () => {
+      setLoading(true);
+      setError(null);
       try {
-        const data = await listEscrows();
+        const data = await listEscrows({ limit: 20, offset: 0, status: status === 'all' ? '' : status, as: (user?.role === 'seller' ? 'seller' : 'buyer') });
         setRows(data);
-      } catch {
-        // fallback sample
-        setRows([
-          { id: "ESC-1029", seller: "Toko Andalas", amount: 1_250_000, status: "pending_payment", createdAt: new Date().toISOString() },
-          { id: "ESC-1030", seller: "Gadget Nusantara", amount: 2_499_000, status: "funded", createdAt: new Date().toISOString() },
-          { id: "ESC-1031", seller: "Batik Ayu", amount: 540_000, status: "released", createdAt: new Date().toISOString() },
-        ]);
+      } catch (e: any) {
+        setError(e?.message || 'Failed to load escrows');
+        setRows([]);
+      } finally {
+        setLoading(false);
       }
     })();
-  }, []);
+  }, [status, user?.role]);
 
   const pageItems = useMemo(()=>{
     const q = query.toLowerCase().trim();
@@ -55,6 +59,8 @@ export default function Dashboard(){
         </div>
 
         <div className="rounded-xl border bg-white p-4 shadow-sm overflow-x-auto">
+          {loading && <div className="py-8 text-center text-gray-500">Loading…</div>}
+          {error && !loading && <div className="py-3 mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded">{error}</div>}
           <table className="min-w-full text-sm">
             <thead><tr className="text-left text-gray-500"><th className="py-2 pr-4">ID</th><th className="py-2 pr-4">Seller</th><th className="py-2 pr-4">Amount</th><th className="py-2 pr-4">Status</th></tr></thead>
             <tbody>
@@ -66,7 +72,7 @@ export default function Dashboard(){
                   <td className="py-2 pr-4"><StatusBadge status={e.status}/></td>
                 </tr>
               ))}
-              {pageItems.length===0 && (
+              {pageItems.length===0 && !loading && (
                 <tr><td colSpan={4} className="py-8 text-center text-gray-500">No results</td></tr>
               )}
             </tbody>
