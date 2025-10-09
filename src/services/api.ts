@@ -26,6 +26,16 @@ if (isLocal && baseRaw) {
   }
 }
 
+// Debug: log the resolved API base once (helpful in production to validate env setup)
+try {
+  const g: any = (globalThis as any);
+  if (typeof window !== 'undefined' && !g.__API_BASE_LOGGED__) {
+    g.__API_BASE_LOGGED__ = true;
+    // eslint-disable-next-line no-console
+    console.info('[Escao] API base:', BASE || '(relative to origin)');
+  }
+} catch { /* noop */ }
+
 function joinUrl(base: string, path: string) {
   if (!base) return path; // relative to current origin
   const b = base.endsWith("/") ? base.slice(0, -1) : base;
