@@ -13,6 +13,13 @@ const baseRaw: string | undefined = baseFromSingle || baseFromSplit;
 // Normalize base and adapt for local dev: if pointing to localhost/127.0.0.1 with '/api' path,
 // prefer hitting the Vite proxy by using '/api' relative base to avoid CORS/body parsing issues.
 let BASE = (baseRaw || "").replace(/\/$/, "");
+// If runtime provides API_PROXY_TARGET, prefer calling relative '/api' so our express proxy handles CORS in prod
+try {
+  const proxyTarget = (globalThis as any)?.process?.env?.API_PROXY_TARGET as string | undefined;
+  if (proxyTarget && /^https?:\/\//i.test(proxyTarget)) {
+    BASE = '/api';
+  }
+} catch { /* noop */ }
 if (isLocal && baseRaw) {
   try {
     const u = new URL(baseRaw);
