@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import StatusBadge from "../components/StatusBadge";
 import type { Escrow, EscrowStatus } from "../types";
-import { getEscrow, shipEscrow, confirmReceipt, getMyKycStatus } from "../services/api";
+import { getEscrow, shipEscrow, confirmReceipt, getMyKycStatus, uploadReceipt, getEscrowSummary } from "../services/api";
 import { toast } from "react-hot-toast";
 import { formatIDR } from "../utils/format";
 import { useAuth } from "../hooks/useAuth";
@@ -33,6 +33,12 @@ export default function EscrowDetail(){
   const [kycVerified, setKycVerified] = useState<boolean | null>(null);
   const [kycInfo, setKycInfo] = useState<{ status?: string; level?: string } | null>(null);
   const [shipError, setShipError] = useState<string | null>(null);
+  const [buyerFile, setBuyerFile] = useState<File | null>(null);
+  const [buyerUploadError, setBuyerUploadError] = useState<string | null>(null);
+  const [hasReceiptUploaded, setHasReceiptUploaded] = useState<boolean>(false);
+  const [receiptPreview, setReceiptPreview] = useState<{ url: string; kind: 'image'|'video'|'file' } | null>(null);
+  const [sellerProof, setSellerProof] = useState<{ url: string; kind: 'image'|'video'|'file' } | null>(null);
+  const [mediaModal, setMediaModal] = useState<{ url: string; kind: 'image'|'video'; title?: string } | null>(null);
   // buyer upload not used (seller uploads shipping proof)
 
   useEffect(() => {
@@ -40,6 +46,28 @@ export default function EscrowDetail(){
       if (!id) return;
       const e = await getEscrow(id);
       setEscrow(e);
+      // Load summary to extract seller proof
+      try {
+        const s = await getEscrowSummary(id);
+        // If summary carries buyer/seller emails, merge into escrow state for display
+        if (s?.buyer_email || s?.seller_email) {
+          setEscrow(prev => prev ? { ...prev, buyer: s.buyer_email || prev.buyer, seller: s.seller_email || prev.seller } : prev);
+        }
+        const abs = toAbsoluteFileUrl(s.seller_proof_url);
+        if (typeof abs === 'string' && abs) {
+          setSellerProof({ url: abs, kind: inferKindFromUrl(abs) });
+        } else {
+          setSellerProof(null);
+        }
+        // Initialize buyer receipt state if present in summary
+        const buyerAbs = toAbsoluteFileUrl(s.buyer_receipt_url);
+        if (typeof buyerAbs === 'string' && buyerAbs) {
+          setHasReceiptUploaded(true);
+          setReceiptPreview({ url: buyerAbs, kind: inferKindFromUrl(buyerAbs) });
+        }
+      } catch {
+        setSellerProof(null);
+      }
     })();
   }, [id]);
 
@@ -55,7 +83,38 @@ export default function EscrowDetail(){
     })();
   }, []);
 
+  // Close modal on Escape key
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setMediaModal(null);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // status updates happen via specific endpoints now
+
+  function toAbsoluteFileUrl(url?: string) {
+    if (!url) return url as any;
+    if (/^https?:\/\//i.test(url)) return url;
+    if (url.startsWith('/uploads')) {
+      const raw = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_BASE_URL_PROD || (import.meta as any).env?.VITE_API_BASE_URL_LOCAL;
+      try {
+        const origin = raw ? new URL(raw as string).origin : window.location.origin;
+        return origin.replace(/\/$/, '') + url;
+      } catch {
+        return url;
+      }
+    }
+    return url;
+  }
+
+  function inferKindFromUrl(u: string): 'image'|'video'|'file' {
+    const lower = u.toLowerCase();
+    if (/(\.png|\.jpg|\.jpeg|\.gif|\.webp|\.avif)$/.test(lower)) return 'image';
+    if (/(\.mp4|\.webm|\.mov|\.m4v|\.avi)$/.test(lower)) return 'video';
+    return 'file';
+  }
 
   async function handleShip() {
     if (!id) return;
@@ -64,7 +123,7 @@ export default function EscrowDetail(){
     setShipError(null);
     setUploading(true);
     try {
-      const resp = await shipEscrow(id, { shipping_receipt: shipForm.receipt, media: shipForm.media || undefined });
+  const resp = await shipEscrow(id, { shipping_receipt: shipForm.receipt, media: shipForm.media || undefined });
       // Extract tracking number and audit metadata from server response
       const tn = resp?.tracking_number || resp?.tracking_no || resp?.shipping_receipt || resp?.shipping_receipt_number || shipForm.receipt;
       const audit = (() => {
@@ -77,8 +136,19 @@ export default function EscrowDetail(){
       })();
       setShipSuccess({ trackingNumber: tn, audit, raw: resp });
       toast.success('Shipment submitted');
+      // Optimistically update timeline to 'shipped' for better UX
+      setEscrow(prev => prev ? { ...prev, status: 'shipped' } : prev);
       const e = await getEscrow(id);
       setEscrow(e);
+      try {
+        const s = await getEscrowSummary(id);
+        const abs = toAbsoluteFileUrl(s.seller_proof_url);
+        if (typeof abs === 'string' && abs) setSellerProof({ url: abs, kind: inferKindFromUrl(abs) });
+        // Reinforce 'shipped' if summary indicates seller proof exists
+        if (abs) {
+          setEscrow(prev => prev ? { ...prev, status: 'shipped' } : prev);
+        }
+      } catch {}
     } catch (err: any) {
       const serverMsg = err?.data?.message || err?.data?.error || err?.message;
       setShipError(serverMsg || 'Failed to submit shipment');
@@ -96,10 +166,44 @@ export default function EscrowDetail(){
     try {
       await confirmReceipt(id);
       toast.success('Receipt confirmed');
+      // Optimistically move to 'delivered' to update timeline immediately
+      setEscrow(prev => prev ? { ...prev, status: 'delivered' } : prev);
       const e = await getEscrow(id);
       setEscrow(e);
     } catch (err: any) {
       toast.error(err?.message || 'Failed to confirm');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleBuyerUpload() {
+    if (!id) return;
+    if (!buyerFile) { setBuyerUploadError('Please choose an image/video'); return; }
+    setBuyerUploadError(null);
+    setUploading(true);
+    try {
+      const resp = await uploadReceipt(id, buyerFile);
+      toast.success('Received proof uploaded');
+      // Extract receipt URL from response if available
+      let url: string | undefined = resp?.receipt_url || resp?.url || resp?.media?.url || resp?.file?.url || resp?.path;
+      if (!url && Array.isArray(resp?.files) && resp.files.length) {
+        url = resp.files[0]?.url || resp.files[0]?.path;
+      }
+      if (typeof url === 'string' && url) {
+        const abs = toAbsoluteFileUrl(url);
+        setReceiptPreview({ url: abs, kind: inferKindFromUrl(abs) });
+      } else {
+        setReceiptPreview(null);
+      }
+      const e = await getEscrow(id);
+      setEscrow(e);
+      setBuyerFile(null);
+      setHasReceiptUploaded(true);
+    } catch (err: any) {
+      const msg = err?.data?.message || err?.data?.error || err?.message;
+      setBuyerUploadError(msg || 'Failed to upload proof');
+      toast.error(msg || 'Failed to upload proof');
     } finally {
       setUploading(false);
     }
@@ -175,11 +279,104 @@ export default function EscrowDetail(){
       {isBuyer && (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            <button onClick={handleConfirmReceipt} disabled={uploading || !(escrow.status === 'shipped' || escrow.status === 'delivered')} className="px-3 py-2 rounded-lg bg-green-600 text-white disabled:opacity-60">{uploading ? 'Processing…' : 'Finish (Confirm)'}</button>
+            <button onClick={handleConfirmReceipt} disabled={uploading || !(escrow.status === 'shipped' || escrow.status === 'delivered') || !hasReceiptUploaded} className="px-3 py-2 rounded-lg bg-green-600 text-white disabled:opacity-60">{uploading ? 'Processing…' : 'Finish (Confirm)'}</button>
           </div>
           {!(escrow.status === 'shipped' || escrow.status === 'delivered') && (
             <p className="text-sm text-gray-600">Finish will be available after the seller ships the item.</p>
           )}
+          {(escrow.status === 'shipped' || escrow.status === 'delivered') && !hasReceiptUploaded && (
+            <p className="text-sm text-amber-700">Please upload proof of receipt to enable Finish.</p>
+          )}
+          <div className="pt-2 border-t">
+            <label className="text-sm font-medium">Upload proof of received package (image/video)</label>
+            <input type="file" accept="image/*,video/*" className="mt-1 block w-full" onChange={e=> setBuyerFile(e.target.files?.[0] || null)} />
+            {buyerUploadError && <p className="mt-1 text-sm text-red-600">{buyerUploadError}</p>}
+            <div className="flex gap-2 mt-2">
+              <button onClick={handleBuyerUpload} disabled={uploading || !buyerFile || !(escrow.status === 'shipped' || escrow.status === 'delivered')} className="px-3 py-2 rounded-lg bg-blue-600 text-white disabled:opacity-60">{uploading ? 'Uploading…' : 'Upload Proof'}</button>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">You can upload a photo or short video showing the received package before confirming.</p>
+            {receiptPreview && (
+              <div className="mt-3 p-3 rounded border bg-gray-50">
+                <div className="text-sm font-medium mb-2">Uploaded proof</div>
+                {receiptPreview.kind === 'image' && (
+                  <img
+                    src={receiptPreview.url}
+                    alt="Received proof"
+                    className="max-h-64 rounded border cursor-zoom-in"
+                    onClick={() => setMediaModal({ url: receiptPreview.url, kind: 'image', title: 'Buyer Receipt' })}
+                  />
+                )}
+                {receiptPreview.kind === 'video' && (
+                  <video
+                    src={receiptPreview.url}
+                    controls
+                    className="max-h-64 rounded border w-full cursor-zoom-in"
+                    onClick={() => setMediaModal({ url: receiptPreview.url, kind: 'video', title: 'Buyer Receipt' })}
+                  />
+                )}
+                {receiptPreview.kind === 'file' && (
+                  <a href={receiptPreview.url} target="_blank" rel="noreferrer" className="text-indigo-700 underline break-all">{receiptPreview.url}</a>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Seller proof display */}
+      {sellerProof && (
+        <div className="mt-6 p-4 rounded-lg border bg-gray-50">
+          <div className="text-sm font-medium mb-2">Seller Proof of Delivery</div>
+          {sellerProof.kind === 'image' && (
+            <img
+              src={sellerProof.url}
+              alt="Seller proof of delivery"
+              className="max-h-64 rounded border cursor-zoom-in"
+              onClick={() => setMediaModal({ url: sellerProof.url, kind: 'image', title: 'Seller Proof of Delivery' })}
+            />
+          )}
+          {sellerProof.kind === 'video' && (
+            <video
+              src={sellerProof.url}
+              controls
+              className="w-full max-h-64 rounded border cursor-zoom-in"
+              onClick={() => setMediaModal({ url: sellerProof.url, kind: 'video', title: 'Seller Proof of Delivery' })}
+            />
+          )}
+          {sellerProof.kind === 'file' && (
+            <a href={sellerProof.url} target="_blank" rel="noreferrer" className="text-indigo-700 underline break-all">{sellerProof.url}</a>
+          )}
+        </div>
+      )}
+
+      {/* Lightbox Modal */}
+      {mediaModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setMediaModal(null)}
+        >
+          <div
+            className="relative bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="absolute top-2 right-2 inline-flex items-center justify-center rounded-full w-8 h-8 bg-black/70 text-white hover:bg-black/80"
+              onClick={() => setMediaModal(null)}
+              aria-label="Close"
+            >
+              ✕
+            </button>
+            {mediaModal.title && (
+              <div className="px-4 pt-4 pb-2 text-sm font-medium text-gray-700">{mediaModal.title}</div>
+            )}
+            <div className="p-4 flex items-center justify-center">
+              {mediaModal.kind === 'image' ? (
+                <img src={mediaModal.url} alt={mediaModal.title || 'Preview'} className="max-h-[80vh] max-w-full rounded" />
+              ) : (
+                <video src={mediaModal.url} controls autoPlay className="max-h-[80vh] w-full rounded" />
+              )}
+            </div>
+          </div>
         </div>
       )}
 

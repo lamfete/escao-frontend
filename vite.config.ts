@@ -21,6 +21,8 @@ export default defineConfig(({ mode }) => {
       proxy: {
         // Only proxy API namespace to avoid intercepting SPA routes like '/escrow/new'.
         '/api': { target: proxyTarget, changeOrigin: true },
+        // Also proxy uploaded assets for dev so relative /uploads URLs work locally
+        '/uploads': { target: proxyTarget, changeOrigin: true },
       },
     },
   };

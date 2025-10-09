@@ -1,7 +1,7 @@
 import /*React,*/ { useEffect, useState } from "react";
 import StatusBadge from "../components/StatusBadge";
 import type { Escrow, EscrowStatus, Dispute } from "../types";
-import { listEscrows, listDisputes, resolveDispute, adminVerifyUserKyc, listKycPendingSellers, getUserKycDetails } from "../services/api";
+import { listEscrows, listDisputes, resolveDispute, adminVerifyUserKyc, listKycPendingSellers, getUserKycDetails, listAdminEscrows, adminReleaseEscrow, getEscrowSummary } from "../services/api";
 import { formatIDR } from "../utils/format";
 import { toast } from "react-hot-toast";
 
@@ -30,10 +30,17 @@ export default function AdminDashboard() {
   }
   const [escrows, setEscrows] = useState<Escrow[]>([]);
   const [disputes, setDisputes] = useState<Dispute[]>([]);
+  const [releaseModal, setReleaseModal] = useState<{ open: boolean; loading?: boolean; error?: string | null; escrowId?: string; details?: any }>({ open: false });
 
   useEffect(() => {
     (async () => {
-      setEscrows(await listEscrows());
+      try {
+        // Prefer admin-wide listing; fallback to user-scoped if admin endpoint is not available
+        const all = await listAdminEscrows({ limit: 20, offset: 0, sort: '-created' });
+        setEscrows(all);
+      } catch {
+        setEscrows(await listEscrows());
+      }
       setDisputes(await listDisputes());
     })();
   }, []);
@@ -83,6 +90,7 @@ export default function AdminDashboard() {
                 <th className="py-2 pr-4">Seller</th>
                 <th className="py-2 pr-4">Amount</th>
                 <th className="py-2 pr-4">Status</th>
+                <th className="py-2 pr-4">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -92,11 +100,162 @@ export default function AdminDashboard() {
                   <td className="py-2 pr-4">{e.seller}</td>
                   <td className="py-2 pr-4">{formatIDR(e.amount)}</td>
                   <td className="py-2 pr-4"><StatusBadge status={e.status} /></td>
+                  <td className="py-2 pr-4">
+                    {e.status === 'delivered' && (
+                      <button
+                        className="px-3 py-1 rounded bg-blue-600 text-white"
+                        onClick={async ()=>{
+                          setReleaseModal({ open: true, loading: true, error: null, escrowId: e.id });
+                          try {
+                            // Load concise summary only and combine with row data; avoid GET /escrow/:id
+                            const summary = await getEscrowSummary(e.id);
+                            const merged: any = {
+                              id: e.id,
+                              buyer: (e as any).buyer,
+                              seller: e.seller,
+                              amount: e.amount,
+                              status: e.status,
+                              seller_proof_url: summary.seller_proof_url,
+                              buyer_receipt_url: summary.buyer_receipt_url,
+                              seller_receipt_number: (summary as any).seller_receipt_number,
+                              payment: summary.payment,
+                            };
+                            // Normalize /uploads links to absolute for preview
+                            const makeAbs = (url?: string) => {
+                              if (!url) return url;
+                              if (/^https?:\/\//i.test(url)) return url;
+                              if (url.startsWith('/uploads')) {
+                                const raw = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_BASE_URL_PROD || (import.meta as any).env?.VITE_API_BASE_URL_LOCAL;
+                                try {
+                                  const origin = raw ? new URL(raw as string).origin : window.location.origin;
+                                  return origin.replace(/\/$/, '') + url;
+                                } catch { return url; }
+                              }
+                              return url;
+                            };
+                            if (merged) {
+                              merged.seller_proof_url = makeAbs(merged.seller_proof_url);
+                              merged.buyer_receipt_url = makeAbs(merged.buyer_receipt_url);
+                              if (merged.payment?.qr_code_url) merged.payment.qr_code_url = makeAbs(merged.payment.qr_code_url);
+                            }
+                            setReleaseModal({ open: true, loading: false, error: null, escrowId: e.id, details: merged });
+                          } catch (err: any) {
+                            setReleaseModal({ open: true, loading: false, error: err?.message || 'Failed to load escrow details', escrowId: e.id });
+                          }
+                        }}
+                      >Release</button>
+                    )}
+                  </td>
                 </tr>
               ))}
-              {rows.length===0 && <tr><td colSpan={4} className="py-8 text-center text-gray-500">No items</td></tr>}
+              {rows.length===0 && <tr><td colSpan={5} className="py-8 text-center text-gray-500">No items</td></tr>}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Release review modal */}
+      {releaseModal.open && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-semibold">Release Escrow</h4>
+              <button onClick={()=> setReleaseModal({ open: false })} className="text-gray-600 hover:text-gray-900">Close</button>
+            </div>
+            {releaseModal.loading && <div className="p-3 border rounded">Loading escrow details…</div>}
+            {!releaseModal.loading && releaseModal.error && (
+              <div className="p-3 border rounded text-red-700">{releaseModal.error}</div>
+            )}
+            {!releaseModal.loading && !releaseModal.error && releaseModal.details && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-3 border rounded bg-gray-50">
+                    <div className="text-xs text-gray-500">Escrow ID</div>
+                    <div className="font-mono text-xs">{releaseModal.details.id}</div>
+                    <div className="text-xs text-gray-500 mt-2">Buyer</div>
+                    <div className="text-sm">{releaseModal.details.buyer || '—'}</div>
+                    <div className="text-xs text-gray-500 mt-2">Seller</div>
+                    <div className="text-sm">{releaseModal.details.seller || '—'}</div>
+                    <div className="text-xs text-gray-500 mt-2">Amount</div>
+                    <div className="text-sm">{typeof releaseModal.details.amount === 'number' ? formatIDR(releaseModal.details.amount) : '—'}</div>
+                    <div className="text-xs text-gray-500 mt-2">Status</div>
+                    <div className="text-sm capitalize">{releaseModal.details.status || '—'}</div>
+                  </div>
+                  <div className="p-3 border rounded bg-gray-50 col-span-1 md:col-span-2">
+                    <div className="text-sm font-medium mb-2">Payment</div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                      <div><span className="text-gray-600">Method:</span> {releaseModal.details.payment?.method || '—'}</div>
+                      <div>
+                        <span className="text-gray-600">PG Reference:</span>{' '}
+                        {(() => {
+                          const p = releaseModal.details.payment;
+                          const many = Array.isArray(p?.pg_references) ? p!.pg_references : [];
+                          const single = p?.pg_reference || p?.reference;
+                          const values = [...many];
+                          if (single && !values.includes(single)) values.push(single);
+                          return values.length ? values.join(', ') : '—';
+                        })()}
+                      </div>
+                      <div><span className="text-gray-600">Status:</span> {releaseModal.details.payment?.status || '—'}</div>
+                      <div><span className="text-gray-600">Paid at:</span> {releaseModal.details.payment?.paid_at ? new Date(releaseModal.details.payment.paid_at).toLocaleString() : '—'}</div>
+                      {releaseModal.details.payment?.qr_code_url && (
+                        <div className="md:col-span-2"><a className="text-indigo-700 underline break-all" href={releaseModal.details.payment.qr_code_url} target="_blank" rel="noreferrer">QR Code</a></div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-3 border rounded">
+                    <div className="text-sm font-medium mb-2">Seller Proof of Delivery</div>
+                    {releaseModal.details.seller_proof_url ? (
+                      /\.(png|jpe?g|gif|webp|avif)$/i.test(releaseModal.details.seller_proof_url) ? (
+                        <img src={releaseModal.details.seller_proof_url} alt="Seller proof" className="max-h-64 rounded border" />
+                      ) : /\.(mp4|webm|mov|m4v|avi)$/i.test(releaseModal.details.seller_proof_url) ? (
+                        <video src={releaseModal.details.seller_proof_url} controls className="w-full max-h-64 rounded border" />
+                      ) : (
+                        <a href={releaseModal.details.seller_proof_url} target="_blank" rel="noreferrer" className="text-indigo-700 underline break-all">{releaseModal.details.seller_proof_url}</a>
+                      )
+                    ) : (
+                      <div className="text-sm text-gray-500">No proof uploaded</div>
+                    )}
+                  </div>
+                  <div className="p-3 border rounded">
+                    <div className="text-sm font-medium mb-2">Buyer Receipt</div>
+                    {releaseModal.details.buyer_receipt_url ? (
+                      /\.(png|jpe?g|gif|webp|avif)$/i.test(releaseModal.details.buyer_receipt_url) ? (
+                        <img src={releaseModal.details.buyer_receipt_url} alt="Buyer receipt" className="max-h-64 rounded border" />
+                      ) : /\.(mp4|webm|mov|m4v|avi)$/i.test(releaseModal.details.buyer_receipt_url) ? (
+                        <video src={releaseModal.details.buyer_receipt_url} controls className="w-full max-h-64 rounded border" />
+                      ) : (
+                        <a href={releaseModal.details.buyer_receipt_url} target="_blank" rel="noreferrer" className="text-indigo-700 underline break-all">{releaseModal.details.buyer_receipt_url}</a>
+                      )
+                    ) : (
+                      <div className="text-sm text-gray-500">No buyer receipt uploaded</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <button className="px-3 py-2 rounded border" onClick={()=> setReleaseModal({ open: false })}>Cancel</button>
+                  <button
+                    className="px-3 py-2 rounded bg-blue-600 text-white"
+                    onClick={async ()=>{
+                      if (!releaseModal.escrowId) return;
+                      try {
+                        await adminReleaseEscrow(releaseModal.escrowId);
+                        toast.success('Escrow released');
+                        setEscrows(list => list.map(x => x.id === releaseModal.escrowId ? { ...x, status: 'released' } : x));
+                        setReleaseModal({ open: false });
+                      } catch (err: any) {
+                        toast.error(err?.message || 'Failed to release');
+                      }
+                    }}
+                  >Confirm Release</button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

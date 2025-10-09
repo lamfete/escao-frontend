@@ -15,7 +15,7 @@ export default function EscrowPayment(){
   const [paymentUrl] = useState<string | undefined>(navState?.paymentUrl);
   const [waiting, setWaiting] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const [method, setMethod] = useState<'qris' | 'bank_transfer'>('qris');
+  const [method, setMethod] = useState<'QRIS' | 'BI-FAST'>('QRIS');
 
   // Generate dummy payment codes once
   const { qrisCode, bifastCode } = useMemo(() => {
@@ -49,7 +49,7 @@ export default function EscrowPayment(){
     toast('Submitting payment…');
     try {
       // Send funding details to backend (dummy values for now)
-      const isQris = method === 'qris';
+    const isQris = method === 'QRIS';
       const makeRef = () => `TXN${Math.random().toString(36).slice(2,8).toUpperCase()}${Date.now().toString().slice(-6)}`;
       await fundEscrow(id, {
         method,
@@ -102,8 +102,8 @@ export default function EscrowPayment(){
         <div className="pt-2">
           <h3 className="font-semibold mb-2">Choose Payment Method</h3>
           <div className="grid grid-cols-2 gap-3">
-            <button type="button" onClick={()=>setMethod('qris')} className={`p-3 border rounded-lg text-sm ${method==='qris' ? 'border-indigo-600 ring-2 ring-indigo-200' : ''}`}>QRIS</button>
-            <button type="button" onClick={()=>setMethod('bank_transfer')} className={`p-3 border rounded-lg text-sm ${method==='bank_transfer' ? 'border-indigo-600 ring-2 ring-indigo-200' : ''}`}>Bank Transfer</button>
+            <button type="button" onClick={()=>setMethod('QRIS')} className={`p-3 border rounded-lg text-sm ${method==='QRIS' ? 'border-indigo-600 ring-2 ring-indigo-200' : ''}`}>QRIS</button>
+            <button type="button" onClick={()=>setMethod('BI-FAST')} className={`p-3 border rounded-lg text-sm ${method==='BI-FAST' ? 'border-indigo-600 ring-2 ring-indigo-200' : ''}`}>BI-FAST</button>
           </div>
         </div>
 
