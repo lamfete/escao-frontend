@@ -22,9 +22,7 @@ export default function Home(){
             )}
           </div>
         </div>
-        <div className="md:justify-self-end">
-          <div className="rounded-2xl shadow-lg w-full max-w-lg h-64 bg-gradient-to-br from-indigo-100 to-white flex items-center justify-center text-indigo-700 font-semibold">Illustration</div>
-        </div>
+        {/* Illustration removed */}
       </div>
     </section>
   );
