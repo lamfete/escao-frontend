@@ -37,7 +37,9 @@ export default function Navbar(){
           <NavLink to="/" className={({isActive})=> isActive? 'text-indigo-600 font-semibold':'text-gray-600 hover:text-indigo-600'}>Home</NavLink>
           <NavLink to="/dashboard" className={({isActive})=> isActive? 'text-indigo-600 font-semibold':'text-gray-600 hover:text-indigo-600'}>Dashboard</NavLink>
           <NavLink to="/escrow/new" className={({isActive})=> isActive? 'text-indigo-600 font-semibold':'text-gray-600 hover:text-indigo-600'}>New Escrow</NavLink>
-          <NavLink to="/admin" className={({isActive})=> isActive? 'text-indigo-600 font-semibold':'text-gray-600 hover:text-indigo-600'}>Admin</NavLink>
+          {user?.role === 'admin' && (
+            <NavLink to="/admin" className={({isActive})=> isActive? 'text-indigo-600 font-semibold':'text-gray-600 hover:text-indigo-600'}>Admin</NavLink>
+          )}
           {user && kycVerified === false && (
             <NavLink to="/kyc" className={({isActive})=> isActive? 'text-amber-700 font-semibold':'text-amber-700 hover:text-amber-800'}>KYC</NavLink>
           )}
@@ -56,7 +58,9 @@ export default function Navbar(){
           <NavLink to="/" onClick={()=>setOpen(false)} className="block text-gray-700">Home</NavLink>
           <NavLink to="/dashboard" onClick={()=>setOpen(false)} className="block text-gray-700">Dashboard</NavLink>
           <NavLink to="/escrow/new" onClick={()=>setOpen(false)} className="block text-gray-700">New Escrow</NavLink>
-          <NavLink to="/admin" onClick={()=>setOpen(false)} className="block text-gray-700">Admin</NavLink>
+          {user?.role === 'admin' && (
+            <NavLink to="/admin" onClick={()=>setOpen(false)} className="block text-gray-700">Admin</NavLink>
+          )}
           {user && kycVerified === false && (
             <NavLink to="/kyc" onClick={()=>setOpen(false)} className="block text-amber-700">KYC</NavLink>
           )}
