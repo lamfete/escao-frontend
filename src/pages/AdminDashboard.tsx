@@ -7,6 +7,7 @@ import { toast } from "react-hot-toast";
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState<"all" | "disputes" | "kyc">("all");
+  const [query, setQuery] = useState<string>("");
   const [kycLoading, setKycLoading] = useState<boolean>(false);
   const [kycList, setKycList] = useState<Array<{ id: string; email?: string; status?: string; level?: string; submitted_at?: string }>>([]);
   const [kycOffset, setKycOffset] = useState<number>(0);
@@ -69,16 +70,34 @@ export default function AdminDashboard() {
     setDisputes(d => d.filter(x => x.escrowId !== id));
   }
 
-  const rows = tab === "disputes" ? [] : escrows;
+  const rows = tab === "disputes" ? [] : escrows.filter(e => {
+    if (!query.trim()) return true;
+    const q = query.trim().toLowerCase();
+    const id = e.id?.toLowerCase?.() || "";
+    const seller = e.seller?.toLowerCase?.() || "";
+    const buyer = (e as any).buyer?.toLowerCase?.() || "";
+    const status = String(e.status || '').toLowerCase();
+    return id.includes(q) || seller.includes(q) || buyer.includes(q) || status.includes(q);
+  });
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-8">
       <h2 className="text-2xl font-bold mb-6">Admin Dashboard</h2>
 
-      <div className="flex gap-4 mb-4">
+      <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 mb-4">
         <button onClick={() => setTab("all")} className={`px-4 py-2 rounded-lg ${tab==='all'?'bg-indigo-600 text-white':'bg-gray-200'}`}>All Escrows</button>
         <button onClick={() => setTab("disputes")} className={`px-4 py-2 rounded-lg ${tab==='disputes'?'bg-red-600 text-white':'bg-gray-200'}`}>Disputes</button>
         <button onClick={() => setTab("kyc")} className={`px-4 py-2 rounded-lg ${tab==='kyc'?'bg-amber-600 text-white':'bg-gray-200'}`}>KYC</button>
+        {tab === 'all' && (
+          <div className="md:ml-auto w-full md:w-72">
+            <input
+              value={query}
+              onChange={e=> setQuery(e.target.value)}
+              placeholder="Search by ID, buyer, seller, status…"
+              className="w-full px-3 py-2 border rounded-lg text-sm"
+            />
+          </div>
+        )}
       </div>
 
       {tab === "all" && (
@@ -96,7 +115,50 @@ export default function AdminDashboard() {
             <tbody>
               {rows.map((e) => (
                 <tr key={e.id} className="border-t">
-                  <td className="py-2 pr-4">{e.id}</td>
+                  <td className="py-2 pr-4 font-mono text-xs">
+                    <button
+                      className="underline text-indigo-700 hover:text-indigo-900"
+                      onClick={async ()=>{
+                        setReleaseModal({ open: true, loading: true, error: null, escrowId: e.id });
+                        try {
+                          const summary = await getEscrowSummary(e.id);
+                          const merged: any = {
+                            id: e.id,
+                            buyer: (e as any).buyer,
+                            seller: e.seller,
+                            amount: e.amount,
+                            status: e.status,
+                            seller_proof_url: summary.seller_proof_url,
+                            buyer_receipt_url: summary.buyer_receipt_url,
+                            seller_receipt_number: (summary as any).seller_receipt_number,
+                            payment: summary.payment,
+                          };
+                          const makeAbs = (url?: string) => {
+                            if (!url) return url;
+                            if (/^https?:\/\//i.test(url)) return url;
+                            if (url.startsWith('/uploads')) {
+                              const raw = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_BASE_URL_PROD || (import.meta as any).env?.VITE_API_BASE_URL_LOCAL;
+                              try {
+                                const origin = raw ? new URL(raw as string).origin : window.location.origin;
+                                return origin.replace(/\/$/, '') + url;
+                              } catch { return url; }
+                            }
+                            return url;
+                          };
+                          if (merged) {
+                            merged.seller_proof_url = makeAbs(merged.seller_proof_url);
+                            merged.buyer_receipt_url = makeAbs(merged.buyer_receipt_url);
+                            if (merged.payment?.qr_code_url) merged.payment.qr_code_url = makeAbs(merged.payment.qr_code_url);
+                          }
+                          setReleaseModal({ open: true, loading: false, error: null, escrowId: e.id, details: merged });
+                        } catch (err: any) {
+                          setReleaseModal({ open: true, loading: false, error: err?.message || 'Failed to load escrow details', escrowId: e.id });
+                        }
+                      }}
+                    >
+                      {e.id}
+                    </button>
+                  </td>
                   <td className="py-2 pr-4">{e.seller}</td>
                   <td className="py-2 pr-4">{formatIDR(e.amount)}</td>
                   <td className="py-2 pr-4"><StatusBadge status={e.status} /></td>
