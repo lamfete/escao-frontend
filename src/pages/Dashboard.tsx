@@ -12,6 +12,8 @@ export default function Dashboard(){
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<EscrowStatus | "all">("all");
   const [loading, setLoading] = useState(true);
+  const [escLimit, setEscLimit] = useState<number>(20);
+  const [escOffset, setEscOffset] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
 
@@ -20,7 +22,7 @@ export default function Dashboard(){
       setLoading(true);
       setError(null);
       try {
-        const data = await listEscrows({ limit: 20, offset: 0, status: status === 'all' ? '' : status, as: (user?.role === 'seller' ? 'seller' : 'buyer') });
+        const data = await listEscrows({ limit: escLimit, offset: escOffset, status: status === 'all' ? '' : status, as: (user?.role === 'seller' ? 'seller' : 'buyer') });
         setRows(data);
       } catch (e: any) {
         setError(e?.message || 'Failed to load escrows');
@@ -29,7 +31,7 @@ export default function Dashboard(){
         setLoading(false);
       }
     })();
-  }, [status, user?.role]);
+  }, [status, escLimit, escOffset, user?.role]);
 
   const pageItems = useMemo(()=>{
     const q = query.toLowerCase().trim();
@@ -46,8 +48,8 @@ export default function Dashboard(){
         </div>
 
         <div className="rounded-xl border bg-white p-4 shadow-sm flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
-          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search by ID or Seller" className="w-full md:w-72 border rounded-lg px-3 py-2"/>
-          <select value={status} onChange={e=>setStatus(e.target.value as any)} className="border rounded-lg px-3 py-2">
+          <input value={query} onChange={e=> { setQuery(e.target.value); setEscOffset(0); }} placeholder="Search by ID or Seller" className="w-full md:w-72 border rounded-lg px-3 py-2"/>
+          <select value={status} onChange={e=> { setStatus(e.target.value as any); setEscOffset(0); }} className="border rounded-lg px-3 py-2">
             <option value="all">All Status</option>
             <option value="pending_payment">Pending payment</option>
             <option value="funded">Funded</option>
@@ -59,6 +61,21 @@ export default function Dashboard(){
         </div>
 
         <div className="rounded-xl border bg-white p-4 shadow-sm overflow-x-auto">
+          <div className="flex items-center justify-between mb-3 text-sm text-gray-600">
+            <div>Page size:
+              <select className="ml-2 border rounded px-2 py-1" value={escLimit} onChange={e=> { setEscLimit(Number(e.target.value)); setEscOffset(0); }}>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={()=> setEscOffset(o => Math.max(0, o - escLimit))} disabled={escOffset === 0 || loading} className="px-3 py-1 rounded border disabled:opacity-50">Prev</button>
+              <div>Offset {escOffset}</div>
+              <button onClick={()=> setEscOffset(o => o + escLimit)} disabled={loading || rows.length < escLimit} className="px-3 py-1 rounded border disabled:opacity-50">Next</button>
+            </div>
+          </div>
           {loading && <div className="py-8 text-center text-gray-500">Loading…</div>}
           {error && !loading && <div className="py-3 mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded">{error}</div>}
           <table className="min-w-full text-sm">
