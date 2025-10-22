@@ -166,6 +166,8 @@ export async function listEscrows(params?: { limit?: number; offset?: number; st
 }
 
 // Admin: list all escrows across the platform
+export type Paging = { limit: number; offset: number; [k: string]: any };
+
 export async function listAdminEscrows(params?: {
   status?: string;
   buyer?: string;
@@ -173,7 +175,7 @@ export async function listAdminEscrows(params?: {
   limit?: number;
   offset?: number;
   sort?: string; // e.g. '-created'
-}): Promise<Escrow[]> {
+}): Promise<{ items: Escrow[]; paging?: Paging; filters?: Record<string, any> }> {
   const qs = new URLSearchParams();
   if (params?.status !== undefined) qs.set('status', String(params.status ?? ''));
   if (params?.buyer !== undefined) qs.set('buyer', String(params.buyer ?? ''));
@@ -183,7 +185,10 @@ export async function listAdminEscrows(params?: {
   if (params?.sort) qs.set('sort', params.sort);
   const resp = await http<any>(`/admin/escrows?${qs.toString()}`, { method: 'GET' });
   const arr: any[] = Array.isArray(resp) ? resp : (resp?.escrows || resp?.data || resp?.items || []);
-  return arr.map(mapBackendEscrow);
+  const items = arr.map(mapBackendEscrow);
+  const paging: Paging | undefined = (resp && typeof resp === 'object' && resp.paging) ? resp.paging : undefined;
+  const filters = (resp && typeof resp === 'object' && resp.filters) ? resp.filters : undefined;
+  return { items, paging, filters };
 }
 
 function mapStatus(s: unknown): EscrowStatus {

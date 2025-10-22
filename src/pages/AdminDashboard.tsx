@@ -30,21 +30,28 @@ export default function AdminDashboard() {
     return url;
   }
   const [escrows, setEscrows] = useState<Escrow[]>([]);
+  const [escLoading, setEscLoading] = useState<boolean>(false);
+  const [escLimit, setEscLimit] = useState<number>(20);
+  const [escOffset, setEscOffset] = useState<number>(0);
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [releaseModal, setReleaseModal] = useState<{ open: boolean; loading?: boolean; error?: string | null; escrowId?: string; details?: any }>({ open: false });
 
   useEffect(() => {
     (async () => {
+      setEscLoading(true);
       try {
-        // Prefer admin-wide listing; fallback to user-scoped if admin endpoint is not available
-        const all = await listAdminEscrows({ limit: 20, offset: 0, sort: '-created' });
-        setEscrows(all);
+        // Prefer admin-wide listing with pagination; fallback to user-scoped if admin endpoint is not available
+        const res = await listAdminEscrows({ limit: escLimit, offset: escOffset, sort: '-created' });
+        setEscrows(res.items);
       } catch {
-        setEscrows(await listEscrows());
+        // fallback: no pagination available here
+        setEscrows(await listEscrows({ limit: escLimit, offset: escOffset }));
+      } finally {
+        setEscLoading(false);
       }
-      setDisputes(await listDisputes());
+      try { setDisputes(await listDisputes()); } catch {}
     })();
-  }, []);
+  }, [escLimit, escOffset]);
 
   // Auto-load KYC list when switching to KYC tab
   useEffect(() => {
@@ -92,7 +99,7 @@ export default function AdminDashboard() {
           <div className="md:ml-auto w-full md:w-72">
             <input
               value={query}
-              onChange={e=> setQuery(e.target.value)}
+              onChange={e=> { setQuery(e.target.value); setEscOffset(0); }}
               placeholder="Search by ID, buyer, seller, status…"
               className="w-full px-3 py-2 border rounded-lg text-sm"
             />
@@ -102,6 +109,21 @@ export default function AdminDashboard() {
 
       {tab === "all" && (
         <div className="rounded-xl border bg-white p-4 shadow-sm overflow-x-auto">
+          <div className="flex items-center justify-between mb-3 text-sm text-gray-600">
+            <div>Page size:
+              <select className="ml-2 border rounded px-2 py-1" value={escLimit} onChange={e=> { setEscLimit(Number(e.target.value)); setEscOffset(0); }}>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={()=> setEscOffset(o => Math.max(0, o - escLimit))} disabled={escOffset === 0 || escLoading} className="px-3 py-1 rounded border disabled:opacity-50">Prev</button>
+              <div>Offset {escOffset}</div>
+              <button onClick={()=> setEscOffset(o => o + escLimit)} disabled={escLoading || rows.length < escLimit} className="px-3 py-1 rounded border disabled:opacity-50">Next</button>
+            </div>
+          </div>
           <table className="min-w-full text-sm">
             <thead>
               <tr className="text-left text-gray-500">
