@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { createEscrow } from "../services/api";
+import { useAuth } from "../hooks/useAuth";
 
 const schema = z.object({
   sellerId: z.string().min(3, "Seller ID required"),
@@ -14,6 +15,7 @@ const schema = z.object({
 export default function EscrowNew(){
   const { register, handleSubmit, formState:{errors}, getValues } = useForm({ resolver: zodResolver(schema) });
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [showEula, setShowEula] = useState(false);
   const [creating, setCreating] = useState(false);
   const [paymentUrl, setPaymentUrl] = useState<string | undefined>(undefined);
@@ -29,11 +31,16 @@ export default function EscrowNew(){
     try {
       const e = await createEscrow(data);
       if (!e?.id) throw new Error("Missing escrow id in response");
-      setPaymentUrl(e.paymentUrl);
+      if (user?.role !== 'seller') setPaymentUrl(e.paymentUrl);
       toast.success("Escrow created");
       setShowEula(false);
-      // Go to Payment screen; pass paymentUrl if available
-      navigate(`/escrow/${e.id}/payment`, { state: { amount: data.amount, paymentUrl: e.paymentUrl } });
+      // If creator is a seller, skip payment and go to details. Buyers go to payment page.
+      if (user?.role === 'seller') {
+        navigate(`/escrow/${e.id}`);
+      } else {
+        // Go to Payment screen; pass paymentUrl if available
+        navigate(`/escrow/${e.id}/payment`, { state: { amount: data.amount, paymentUrl: e.paymentUrl } });
+      }
     } catch (err: any) {
       const msg = err?.message || (err?.data && JSON.stringify(err.data)) || "Failed to create escrow";
       toast.error(msg);
@@ -47,13 +54,17 @@ export default function EscrowNew(){
     <div className="max-w-2xl mx-auto px-4 md:px-6 py-8">
       <h2 className="text-2xl font-bold mb-4">Create New Escrow</h2>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 bg-white border rounded-xl p-6 shadow">
-        <div><label className="text-sm font-medium">Seller ID</label><input className="mt-1 w-full border rounded-lg p-2" placeholder="uuid or username" {...register("sellerId")}/>{errors.sellerId && <p className="text-sm text-red-600">{String(errors.sellerId.message)}</p>}</div>
+        <div>
+          <label className="text-sm font-medium">{user?.role === 'seller' ? 'Buyer ID' : 'Seller ID'}</label>
+          <input className="mt-1 w-full border rounded-lg p-2" placeholder="uuid or email" {...register("sellerId")}/>
+          {errors.sellerId && <p className="text-sm text-red-600">{String(errors.sellerId.message)}</p>}
+        </div>
         <div><label className="text-sm font-medium">Amount (IDR)</label><input type="number" className="mt-1 w-full border rounded-lg p-2" placeholder="250000" {...register("amount")}/>{errors.amount && <p className="text-sm text-red-600">{String(errors.amount.message)}</p>}</div>
         {/* Deadline is now defaulted to 24 hours server-side; field removed */}
-        <button disabled={creating} className="w-full bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-60">{creating ? 'Creating…' : 'Create & Generate QR'}</button>
+        <button disabled={creating} className="w-full bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-60">{creating ? 'Creating…' : (user?.role === 'seller' ? 'Create Escrow' : 'Create & Generate QR')}</button>
       </form>
 
-      {paymentUrl && (
+      {paymentUrl && user?.role !== 'seller' && (
         <div className="mt-6 bg-white border rounded-xl p-4">
           <h3 className="font-semibold mb-2">Payment Link</h3>
           <a className="text-indigo-600 underline break-all" href={paymentUrl} target="_blank" rel="noreferrer">{paymentUrl}</a>
