@@ -278,6 +278,15 @@ export default function EscrowDetail(){
 
       {isBuyer && (
         <div className="space-y-3">
+          {escrow.status === 'pending_payment' && (
+            <div className="p-3 rounded-lg border bg-indigo-50 border-indigo-200 flex items-center justify-between gap-3">
+              <div>
+                <div className="font-medium text-indigo-900">Payment required</div>
+                <div className="text-sm text-indigo-800">This escrow is awaiting funding. Proceed to the payment page to fund it.</div>
+              </div>
+              <Link to={`/escrow/${escrow.id}/payment`} className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Pay now</Link>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             <button onClick={handleConfirmReceipt} disabled={uploading || !(escrow.status === 'shipped' || escrow.status === 'delivered') || !hasReceiptUploaded} className="px-3 py-2 rounded-lg bg-green-600 text-white disabled:opacity-60">{uploading ? 'Processing…' : 'Finish (Confirm)'}</button>
           </div>
