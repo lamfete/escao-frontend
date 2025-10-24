@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import { createDispute } from "../services/api";
+import { createDispute, getEscrow } from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import type { EscrowStatus } from "../types";
 
 export default function DisputeOpen(){
   const { id } = useParams(); // escrow id
@@ -12,9 +13,24 @@ export default function DisputeOpen(){
   const [reason, setReason] = useState<string>("item_not_as_described");
   const [note, setNote] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+  const [escrowStatus, setEscrowStatus] = useState<EscrowStatus | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    if (!escrowId) return;
+    getEscrow(escrowId).then(e => {
+      if (!active) return;
+      setEscrowStatus(e.status);
+    }).catch(() => {
+      setEscrowStatus(null);
+    });
+    return () => { active = false; };
+  }, [escrowId]);
+
+  const canDispute = useMemo(() => escrowStatus === 'shipped' || escrowStatus === 'delivered', [escrowStatus]);
   const [result, setResult] = useState<{ id?: string; raw?: any } | null>(null);
 
-  const disabled = submitting || !escrowId || (user?.role !== 'buyer' && !!user);
+  const disabled = submitting || !escrowId || (user?.role !== 'buyer' && !!user) || !canDispute;
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,7 +43,8 @@ export default function DisputeOpen(){
       toast.success('Dispute opened');
       setResult({ id: disputeId, raw: resp });
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to open dispute');
+      const msg = err?.data?.message || err?.message || 'Failed to open dispute';
+      toast.error(msg);
     } finally {
       setSubmitting(false);
     }
@@ -40,6 +57,11 @@ export default function DisputeOpen(){
 
       {user && user.role !== 'buyer' && (
         <div className="mb-4 p-3 rounded border border-amber-200 bg-amber-50 text-amber-800 text-sm">Only buyers can open disputes.</div>
+      )}
+      {escrowStatus && !canDispute && (
+        <div className="mb-4 p-3 rounded border border-amber-200 bg-amber-50 text-amber-800 text-sm">
+          Dispute can be opened after the seller ships (current status: <span className="font-medium">{escrowStatus.replace('_',' ')}</span>).
+        </div>
       )}
 
       <form onSubmit={onSubmit} className="bg-white border rounded-xl p-6 shadow space-y-4">
