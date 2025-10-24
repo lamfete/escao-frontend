@@ -289,6 +289,7 @@ export default function EscrowDetail(){
           )}
           <div className="flex flex-wrap gap-2">
             <button onClick={handleConfirmReceipt} disabled={uploading || !(escrow.status === 'shipped' || escrow.status === 'delivered') || !hasReceiptUploaded} className="px-3 py-2 rounded-lg bg-green-600 text-white disabled:opacity-60">{uploading ? 'Processing…' : 'Finish (Confirm)'}</button>
+            <Link to={`/escrow/${escrow.id}/dispute`} className="px-3 py-2 rounded-lg border text-sm">Open Dispute</Link>
           </div>
           {!(escrow.status === 'shipped' || escrow.status === 'delivered') && (
             <p className="text-sm text-gray-600">Finish will be available after the seller ships the item.</p>

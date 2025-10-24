@@ -9,6 +9,9 @@ import EscrowNew from "./pages/EscrowNew";
 import EscrowDetail from "./pages/EscrowDetail";
 import EscrowPayment from "./pages/EscrowPayment";
 import AdminDashboard from "./pages/AdminDashboard";
+import DisputeOpen from "./pages/DisputeOpen";
+import DisputeEvidence from "./pages/DisputeEvidence";
+import DisputeResolve from "./pages/DisputeResolve";
 import ProtectedRoute from "./components/ProtectedRoute";
 import KycPage from "./pages/Kyc";
 
@@ -26,6 +29,9 @@ export default function App(){
           <Route path="/escrow/new" element={<ProtectedRoute><EscrowNew /></ProtectedRoute>} />
           <Route path="/escrow/:id" element={<ProtectedRoute><EscrowDetail /></ProtectedRoute>} />
           <Route path="/escrow/:id/payment" element={<ProtectedRoute><EscrowPayment /></ProtectedRoute>} />
+          <Route path="/escrow/:id/dispute" element={<ProtectedRoute><DisputeOpen /></ProtectedRoute>} />
+          <Route path="/disputes/:id/evidence" element={<ProtectedRoute><DisputeEvidence /></ProtectedRoute>} />
+          <Route path="/disputes/:id/resolve" element={<ProtectedRoute role="admin"><DisputeResolve /></ProtectedRoute>} />
           <Route path="/kyc" element={<ProtectedRoute><KycPage /></ProtectedRoute>} />
 
           <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />

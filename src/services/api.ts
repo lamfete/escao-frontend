@@ -565,6 +565,52 @@ export async function resolveDispute(escrowId: string, action: "resolved_refund"
   });
 }
 
+// Disputes (new API)
+// 1) Open a dispute for an escrow (buyer)
+export async function createDispute(
+  escrowId: string,
+  payload?: { reason?: string; note?: string }
+): Promise<{ id: string; escrowId?: string; status?: string; [k: string]: any }> {
+  try {
+    return await http<any>(`/escrow/${encodeURIComponent(escrowId)}/dispute`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    });
+  } catch (e: any) {
+    // Some implementations may not accept a body; retry with empty object
+    if (e && (e.status === 400 || e.status === 415)) {
+      return http<any>(`/escrow/${encodeURIComponent(escrowId)}/dispute`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+    }
+    throw e;
+  }
+}
+
+// 2) Upload dispute evidence (buyer)
+export async function uploadDisputeEvidence(
+  disputeId: string,
+  input: { file_url: string; note?: string }
+): Promise<any> {
+  return http<any>(`/disputes/${encodeURIComponent(disputeId)}/evidence`, {
+    method: 'POST',
+    body: JSON.stringify({ file_url: input.file_url, note: input.note || '' }),
+  });
+}
+
+// 3) Admin resolves dispute
+export async function resolveDisputeDecision(
+  disputeId: string,
+  decision: 'favor_buyer' | 'favor_seller' | 'split',
+  note?: string
+): Promise<any> {
+  return http<any>(`/disputes/${encodeURIComponent(disputeId)}/resolve`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, note }),
+  });
+}
+
 // Admin: release funds to seller for a delivered escrow
 export async function adminReleaseEscrow(escrowId: string): Promise<any> {
   // Try admin-scoped release first, then fallback to a general release endpoint
