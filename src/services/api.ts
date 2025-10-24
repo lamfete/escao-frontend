@@ -554,12 +554,12 @@ export async function getUserKycDetails(userId: string): Promise<KycSubmission> 
 // Disputes
 export async function listDisputes(): Promise<Dispute[]> {
   return [
-    { id: "DSP-1", escrowId: "ESC-1030", reason: "Item not as described", status: "disputed", createdAt: new Date().toISOString() },
+    { id: "DSP-1", escrowId: "ESC-1030", reason: "Item not as described", status: "open", createdAt: new Date().toISOString() },
   ];
 }
 
-export async function resolveDispute(escrowId: string, action: "resolved_refund"|"resolved_release"|"resolved_split"): Promise<Dispute> {
-  return http<Dispute>(`/disputes/${escrowId}/resolve`, {
+export async function resolveDispute(escrowId: string, action: "resolved_refund"|"resolved_release"|"resolved_split"): Promise<any> {
+  return http<any>(`/disputes/${escrowId}/resolve`, {
     method: "POST",
     body: JSON.stringify({ action }),
   });

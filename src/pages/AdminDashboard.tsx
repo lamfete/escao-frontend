@@ -1,6 +1,6 @@
 import /*React,*/ { useEffect, useState } from "react";
 import StatusBadge from "../components/StatusBadge";
-import type { Escrow, EscrowStatus, Dispute } from "../types";
+import type { Escrow, EscrowStatus, Dispute, DisputeStatus } from "../types";
 import { listEscrows, listDisputes, resolveDispute, adminVerifyUserKyc, listKycPendingSellers, getUserKycDetails, listAdminEscrows, adminReleaseEscrow, getEscrowSummary } from "../services/api";
 import { formatIDR } from "../utils/format";
 import { toast } from "react-hot-toast";
@@ -361,7 +361,16 @@ export default function AdminDashboard() {
                   <td className="py-2 pr-4">{d.id}</td>
                   <td className="py-2 pr-4">{d.escrowId}</td>
                   <td className="py-2 pr-4">{d.reason}</td>
-                  <td className="py-2 pr-4"><StatusBadge status={d.status}/></td>
+                  <td className="py-2 pr-4">
+                    {(() => {
+                      const colors: Record<DisputeStatus, string> = {
+                        open: 'bg-red-100 text-red-700',
+                        resolved: 'bg-green-100 text-green-700',
+                        rejected: 'bg-gray-100 text-gray-700',
+                      };
+                      return <span className={`px-2 py-1 rounded-md text-xs font-medium ${colors[d.status as DisputeStatus]}`}>{d.status}</span>;
+                    })()}
+                  </td>
                   <td className="py-2 pr-4 flex flex-wrap gap-2">
                     <button onClick={()=>resolve(d.escrowId,"resolved_refund")} className="px-3 py-1 rounded bg-green-600 text-white">Refund Buyer</button>
                     <button onClick={()=>resolve(d.escrowId,"resolved_release")} className="px-3 py-1 rounded bg-blue-600 text-white">Release Seller</button>

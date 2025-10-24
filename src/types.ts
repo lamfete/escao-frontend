@@ -19,11 +19,13 @@ export type Escrow = {
   paymentMethod?: "QRIS" | "BIFAST" | "BANK_TRANSFER";
 };
 
+export type DisputeStatus = 'open' | 'resolved' | 'rejected';
+
 export type Dispute = {
   id: string;
   escrowId: string;
   reason: string;
-  status: EscrowStatus;  // 'disputed' or resolved_*
+  status: DisputeStatus;  // open | resolved | rejected
   createdAt: string;
 };
 
