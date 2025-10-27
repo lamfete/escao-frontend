@@ -611,6 +611,17 @@ export async function resolveDisputeDecision(
   });
 }
 
+// Generic file upload helper: posts multipart/form-data to /uploads and returns a URL
+export async function uploadPublicFile(file: File): Promise<{ url: string; raw?: any }> {
+  const form = new FormData();
+  form.append('file', file);
+  const resp = await http<any>(`/uploads`, { method: 'POST', body: form });
+  // try common shapes
+  const url = resp?.url || resp?.path || resp?.file?.url || resp?.media?.url || (Array.isArray(resp?.files) ? resp.files[0]?.url || resp.files[0]?.path : undefined);
+  if (typeof url === 'string' && url) return { url, raw: resp };
+  throw Object.assign(new Error('Upload did not return a file URL'), { data: resp });
+}
+
 // Admin: release funds to seller for a delivered escrow
 export async function adminReleaseEscrow(escrowId: string): Promise<any> {
   // Try admin-scoped release first, then fallback to a general release endpoint
